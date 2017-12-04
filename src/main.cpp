@@ -30,17 +30,45 @@ String printDayPhase() {
 
 String buildWebPage() {
   return
-  "<p> " + printDayPhase() + 
-    "<a href=\"open\"><button>OPEN</button></a>"
-    "&nbsp;"
-    "<a href=\"close\"><button>CLOSE</button></a>"
-    "&nbsp;"
-    "<a href=\"up\"><button>UP</button></a>"
-    "&nbsp;"
-    "<a href=\"down\"><button>DOWN</button></a>"
-    "&nbsp;"
-    "<a href=\"stop\"><button>STOP</button></a>"
-  "</p>" + String(analogRead(A0));
+"<html>\n"
+"    <head>\n"
+"        <script>\n"
+"            function exec(command) {\n"
+"                httpGetAsync(command, (res) => console.log(res))\n"
+"            }\n"
+"\n"
+"            function httpGetAsync(url, callback) {\n"
+"                var req = new XMLHttpRequest();\n"
+"                req.onreadystatechange = () => { \n"
+"                    if (req.readyState == 4 && req.status == 200)\n"
+"                        callback(req.responseText);\n"
+"                }\n"
+"                req.open('GET', url, true);\n"
+"                req.send(null);\n"
+"            }\n"
+"        </script>\n"
+"        <style>\n"
+"            button {\n"
+"                height: 8pc;\n"
+"                width: 16pc;\n"
+"                font-size: 3.5pc;\n"
+"                margin: 20px;\n"
+"            }\n"
+"        </style>\n"
+"    </head>\n"
+"    <body>\n"
+"        <p>\n"
+"            <br>\n"
+"            <button onclick=\"exec('open')\">OPEN</button>\n"
+"            <button onclick=\"exec('up')\">UP</button>\n"
+"            <br>\n"
+"            <button onclick=\"exec('close')\">CLOSE</button>\n"
+"            <button onclick=\"exec('down')\">DOWN</button>\n"
+"            <br>\n"
+"            <button onclick=\"exec('stop')\">STOP</button>\n"
+"        </p>\n"
+"    </body>\n"
+"</html>\n";
 }
 
 void respondWebPage() {
@@ -79,23 +107,20 @@ void setup(void){
   
   server.on("/", respondWebPage);
   server.on("/up", [](){
-    respondWebPage();
     digitalWrite(D5, HIGH);
     digitalWrite(D6, LOW);
     nothingPressed = false;
-    delay(1000); 
+    server.send(200, "text/raw", "up");
   });
   server.on("/down", [](){
-    respondWebPage();
     digitalWrite(D5, LOW);
     digitalWrite(D6, HIGH);
-    delay(1000); 
+    server.send(200, "text/raw", "down");
   });
   server.on("/stop", [](){
-    respondWebPage();
     digitalWrite(D5, LOW);
     digitalWrite(D6, LOW);
-    delay(1000); 
+    server.send(200, "text/raw", "stopped");
     nothingPressed = true;
   });
 
@@ -110,13 +135,13 @@ void setup(void){
   });
 
   server.on("/open", []() {
-    respondWebPage();
     openDoor();
+    server.send(200, "text/raw", "open");
   });
   
   server.on("/close", []() {
-    respondWebPage();
     closeDoor();
+    server.send(200, "text/raw", "closed");
   });
   
   server.begin();
