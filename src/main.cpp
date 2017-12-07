@@ -8,6 +8,8 @@
 #define DAY   0
 #define NIGHT 1
 
+u8 OPENING_TIME = 23;
+u8 CLOSING_TIME = 14;
 int dayPhase = 0;
 int dayLight = 500;
 int nightLight = 1023;
@@ -16,14 +18,14 @@ bool nothingPressed = true;
 
 MDNSResponder mdns;
 ESP8266WebServer server(80);
-Button upButton = Button(D7, LOW);
-Button downButton = Button(D8, LOW);
-//ETSTimer stoppingTimer;
+Button upButton = Button(D1, LOW);
+Button downButton = Button(D2, LOW);
+ETSTimer stoppingTimer;
 
 #include <credentials.h>
 // The content of this header is the following:
 // const char* ssid = "your_ssid";
-// const char* password = "your_passoword";
+// const char* password = "your_password";
 
 
 void openDoor();
@@ -57,8 +59,8 @@ void setup(void){
   // preparing GPIOs
   pinMode(D5, OUTPUT);
   pinMode(D6, OUTPUT);
-  digitalWrite(D5, 0);
-  digitalWrite(D6, 0);
+  
+  stopMoving();
   
   delay(1000);
   Serial.begin(9600);
@@ -75,11 +77,14 @@ void setup(void){
   Serial.println(ssid);
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
-
+  
+  if (mdns.begin("esp8266", WiFi.localIP())) {
+    Serial.println("MDNS responder started");
+  }
+  
   server.on("/", respondWebPage);
   server.on("/up", [](){
     moveUp();
-    nothingPressed = false;
     server.send(200, "text/raw", "up");
   });
   server.on("/down", [](){
@@ -89,7 +94,6 @@ void setup(void){
   server.on("/stop", [](){
     stopMoving();
     server.send(200, "text/raw", "stopped");
-    nothingPressed = true;
   });
 
   server.on("/setDay", []() {
@@ -115,58 +119,54 @@ void setup(void){
   server.begin();
   Serial.println("HTTP server started");
 
-  //os_timer_disarm(&stoppingTimer);
-  //os_timer_setfn(&stoppingTimer, callback, nullptr);
+  os_timer_disarm(&stoppingTimer);
+  os_timer_setfn(&stoppingTimer, [](void* arg) {
+    stopMoving();
+  }, nullptr);
 }
 
 void openDoor() {
-  nothingPressed = false;
   moveUp();
-  //os_timer_arm(&stoppingTimer, 1000, 0);
-  nothingPressed = true;
+  os_timer_arm(&stoppingTimer, OPENING_TIME*1000, 0);
+  server.send(200, "text/raw", "open");
 }
 
 void closeDoor() {
-  nothingPressed = false;
   moveDown();
-//  os_timer_arm(&stoppingTimer, 1000, 0);
-  nothingPressed = true;
+  os_timer_arm(&stoppingTimer, CLOSING_TIME*1000, 0);
+  server.send(200, "text/raw", "closed");
 }
 
-void loop(void){
-  /*if(digitalRead(D7) == LOW) {
-    moveUp();
-  }
-  else if (digitalRead(D8) == LOW) {
-    moveDown();
-  } else if(nothingPressed) {
-    stopMoving();
-  }
+bool upWasPressed = false;
+bool downWasPressed = false;
 
-  currentLight = analogRead(A0);
-  if((currentLight < dayLight) && dayPhase == NIGHT) {
-    openDoor();
-    dayPhase = DAY;
-  }
-  if((currentLight > nightLight) && dayPhase == DAY) {
-    closeDoor();
-    dayPhase = NIGHT;
-  }
+void loop(void){
   delay(500);
-  server.handleClient();*/
+  
+  server.handleClient();
+
+  if(upButton.isPressed() && !upWasPressed)
+    moveUp();
+  else if(downButton.isPressed() && !downWasPressed)
+    moveDown();
+  else if(downButton.isReleased() && upButton.isReleased())
+    stopMoving();
+
+  upWasPressed = upButton.isPressed();
+  downWasPressed = downButton.isPressed();
 }
 
 void moveUp() {
-    digitalWrite(D5, HIGH);
-    digitalWrite(D6, LOW);  
+  digitalWrite(D5, HIGH);
+  digitalWrite(D6, LOW);  
 }
 
 void moveDown() {
-    digitalWrite(D5, LOW);
-    digitalWrite(D6, HIGH);  
+  digitalWrite(D5, LOW);
+  digitalWrite(D6, HIGH);  
 }
 
 void stopMoving() {
-    digitalWrite(D5, LOW);
-    digitalWrite(D6, LOW);  
+  digitalWrite(D5, LOW);
+  digitalWrite(D6, LOW);  
 }
