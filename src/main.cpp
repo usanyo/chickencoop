@@ -149,7 +149,7 @@ void loop(void){
     moveUp();
   else if(downButton.isPressed() && !downWasPressed)
     moveDown();
-  else if(downButton.isReleased() && upButton.isReleased())
+  else if(downButton.isReleased() && upButton.isReleased() && (upWasPressed || downWasPressed))
     stopMoving();
 
   upWasPressed = upButton.isPressed();
