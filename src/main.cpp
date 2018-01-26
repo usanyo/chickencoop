@@ -2,14 +2,15 @@
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
+#include <index.html.h>
 
 #define DAY   0
 #define NIGHT 1
 
-int dayPhase = 0;
-int dayLight = 0;
-int nightLight = 1023;
-int currentLight = 0;
+u8 dayPhase = 0;
+u16 dayLight = 0;
+u16 nightLight = 1023;
+u16 currentLight = 0;
 bool nothingPressed = true;
 
 MDNSResponder mdns;
@@ -28,47 +29,8 @@ String printDayPhase() {
   return dayPhase == DAY ? "day" : "night";
 }
 
-String buildWebPage() {
-  return
-"<html>\n"
-"    <head>\n"
-"        <script>\n"
-"            function exec(command) {\n"
-"                httpGetAsync(command, (res) => console.log(res))\n"
-"            }\n"
-"\n"
-"            function httpGetAsync(url, callback) {\n"
-"                var req = new XMLHttpRequest();\n"
-"                req.onreadystatechange = () => { \n"
-"                    if (req.readyState == 4 && req.status == 200)\n"
-"                        callback(req.responseText);\n"
-"                }\n"
-"                req.open('GET', url, true);\n"
-"                req.send(null);\n"
-"            }\n"
-"        </script>\n"
-"        <style>\n"
-"            button {\n"
-"                height: 8pc;\n"
-"                width: 16pc;\n"
-"                font-size: 3.5pc;\n"
-"                margin: 20px;\n"
-"            }\n"
-"        </style>\n"
-"    </head>\n"
-"    <body>\n"
-"        <p>\n"
-"            <br>\n"
-"            <button onclick=\"exec('open')\">OPEN</button>\n"
-"            <button onclick=\"exec('up')\">UP</button>\n"
-"            <br>\n"
-"            <button onclick=\"exec('close')\">CLOSE</button>\n"
-"            <button onclick=\"exec('down')\">DOWN</button>\n"
-"            <br>\n"
-"            <button onclick=\"exec('stop')\">STOP</button>\n"
-"        </p>\n"
-"    </body>\n"
-"</html>\n";
+const char* buildWebPage() {
+  return index_html;
 }
 
 void respondWebPage() {
@@ -76,6 +38,11 @@ void respondWebPage() {
 }
 
 void setup(void){
+
+  timer0_isr_init();
+  timer0_attachInterrupt([](){
+    Serial.println("timer");
+  });
   
   // preparing GPIOs
   pinMode(D5, OUTPUT);
@@ -152,7 +119,7 @@ void openDoor() {
   nothingPressed = false;
     digitalWrite(D5, HIGH);
     digitalWrite(D6, LOW);
-    delay(22*1000);
+    delay(17*1000);
     digitalWrite(D5, LOW);
     digitalWrite(D6, LOW);
     nothingPressed = true;

@@ -1,5 +1,5 @@
 {
     "terminal.integrated.env.linux": {
-        "PATH": "/home/sanyo/.platformio/penv/bin:/home/sanyo/Programs/google-cloud-sdk/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games:/home/sanyo/Android/Sdk/tools:/home/sanyo/Android/Sdk/platform-tools"
+        "PATH": "/home/sanyo/.platformio/penv/bin:/usr/local/go/bin:/home/sanyo/programs/esp-open-sdk/xtensa-lx106-elf/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games:/usr/local/go/bin"
     }
 }
