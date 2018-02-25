@@ -1,6 +1,6 @@
 .pioenvs
 .piolibdeps
-.vscode/c_cpp_properties.json
+.vscode/
 
 src/credentials.h
-.vscode/launch.json
+src/testWebserver/node_modules
