@@ -4,3 +4,5 @@
 
 src/credentials.h
 src/testWebserver/node_modules
+.vscode/.browse.c_cpp.db*
+.vscode/launch.json
