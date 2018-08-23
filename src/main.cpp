@@ -2,24 +2,22 @@
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
-#include <Button.h>
-#include <index.html.h>
+#include <EEPROM.h>
+#include <ArduinoJson.h>
+#include <time.h>
 
 #define DAY   0
 #define NIGHT 1
 
-u8 OPENING_TIME = 23;
-u8 CLOSING_TIME = 14;
-int dayPhase = 0;
-int dayLight = 500;
-int nightLight = 1023;
-int currentLight = 0;
-bool nothingPressed = true;
+bool doorIsOpen = true;
+
+int openingTime = 5 * 60 + 30;
+int closingTime = 21 * 60 + 00;
+int openingDuration = 18 * 256;
+int closingDuration = 13 * 256;
 
 MDNSResponder mdns;
 ESP8266WebServer server(80);
-Button upButton = Button(D1, LOW);
-Button downButton = Button(D2, LOW);
 ETSTimer stoppingTimer;
 
 #include <credentials.h>
@@ -33,32 +31,55 @@ void closeDoor();
 void moveUp();
 void moveDown();
 void stopMoving();
-String printDoorStatus();
 
-String printDoorStatus() {
-  if (digitalRead(D5) == HIGH)
-    return "moving up";
-  if (digitalRead(D6) == HIGH)
-    return "moving down";
-  return "stop moving";
+int timeToInt(const char* input) {
+  char h[3];
+  h[0] = input[0];
+  h[1] = input[1];
+  h[2] = '\0';
+  char m[3];
+  m[0] = input[3];
+  m[1] = input[4];
+  m[2] = '\0';
+  int hours = atoi(h);
+  int minutes = atoi(m);
+  return hours * 60 + minutes;
 }
 
-String printDayPhase() {
-  return dayPhase == DAY ? "day" : "night";
+void intToTime(int input, char* output) {
+  int hours = input / 60;
+  int minutes = input % 60;
+  char h[3];
+  char m[3];
+  sprintf(h, "%02d", hours);
+  sprintf(m, "%02d", minutes);
+  output[0] = h[0];
+  output[1] = h[1];
+  output[2] = ':';
+  output[3] = m[0];
+  output[4] = m[1];
+  output[5] = '\0';
 }
 
-void respondWebPage() {
-    server.send(200, "text/html", index_html);
+void EEPROM_write(int baseAddress, int value) {
+  unsigned char* bits = static_cast<unsigned char*>(static_cast<void*>(&value));
+  for(unsigned int i = 0; i < sizeof(int); i++)
+    EEPROM.write(baseAddress*4 + i, bits[i]);
+}
+
+int EEPROM_read(int baseAddress) {
+  unsigned char bits[4];
+  for(unsigned int i = 0; i < sizeof(int); i++)
+    bits[i] = EEPROM.read(baseAddress*4 + i);
+  int* value = static_cast<int*>(static_cast<void*>(bits));
+  return *value;
 }
 
 void setup(void){
 
-  upButton.setup();
-  downButton.setup();
-
   // preparing GPIOs
-  pinMode(D5, OUTPUT);
-  pinMode(D6, OUTPUT);
+  pinMode(D2, OUTPUT);
+  pinMode(D4, OUTPUT);
   
   stopMoving();
   
@@ -66,6 +87,13 @@ void setup(void){
   Serial.begin(9600);
   WiFi.begin(ssid, password);
   Serial.println("");
+
+  EEPROM.begin(512);
+
+  openingTime = EEPROM_read(0);
+  closingTime = EEPROM_read(1);
+  openingDuration = EEPROM_read(2);
+  closingDuration = EEPROM_read(3);
 
   // Wait for connection
   while (WiFi.status() != WL_CONNECTED) {
@@ -78,40 +106,91 @@ void setup(void){
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
   
+  configTime(2 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+
   if (mdns.begin("esp8266", WiFi.localIP())) {
     Serial.println("MDNS responder started");
   }
-  
-  server.on("/", respondWebPage);
+
+  server.on("/connection", []() {
+    time_t now = time(nullptr);
+    Serial.println(ctime(&now));
+    Serial.println("Connection");
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    char res[1024];
+    char openingTimeStr[6];
+    char closingTimeStr[6];
+    intToTime(openingTime,openingTimeStr);
+    intToTime(closingTime,closingTimeStr);
+    sprintf(res, "{ \"status\" : \"connected\",\n\"openingTime\": \"%s\",\n\"closingTime\": \"%s\",\n\"openingDuration\": %.2f,\n\"closingDuration\": %.2f}",
+    openingTimeStr, closingTimeStr, openingDuration/256.0, closingDuration/256.0);
+    Serial.println(res);
+    server.send(200, "application/json", res);
+  });
+
+  server.on("/settings", []() {
+    Serial.printf("before: %d, %d, %d, %d\n\r", openingTime, closingTime, openingDuration, closingDuration);
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Content-Length, X-Requested-With, Accept");
+
+    if(server.hasArg("plain")) {
+      Serial.println(server.arg("plain"));
+      StaticJsonBuffer<200> jsonBuffer;
+      JsonObject& receivedData = jsonBuffer.parseObject(server.arg("plain"));
+      openingTime = timeToInt(receivedData["openingTime"]);
+      closingTime = timeToInt(receivedData["closingTime"]);
+      Serial.printf("request: %s; %s;\n%.2f; %.2f\n", (const char*)receivedData["openingTime"], (const char*)receivedData["closingTime"],(double)receivedData["openingDuration"],(double)receivedData["closingDuration"]);
+      openingDuration = (int)((float)receivedData["openingDuration"]*256.0f + 0.5f);
+      closingDuration = (int)((float)receivedData["closingDuration"]*256.0f + 0.5f);
+
+      EEPROM_write(0,openingTime);
+      EEPROM_write(1,closingTime);
+      EEPROM_write(2,openingDuration);
+      EEPROM_write(3,closingDuration);
+      EEPROM.commit();
+      
+      Serial.printf("after: %d, %d, %d, %d\n\r", openingTime, closingTime, openingDuration, closingDuration);
+
+      char res[1024];
+      char openingTimeStr[6];
+      char closingTimeStr[6];
+      intToTime(openingTime,openingTimeStr);
+      intToTime(closingTime,closingTimeStr);
+      sprintf(res, "{ \"status\" : \"success\",\n\"openingTime\": \"%s\",\n\"closingTime\": \"%s\",\n\"openingDuration\": %.2f,\n\"closingDuration\": %.2f}",
+      openingTimeStr, closingTimeStr, openingDuration/256.0, closingDuration/256.0);
+      Serial.println(res);
+      server.send(200, "application/json", res);
+    }
+    else
+      server.send(200, "application/json", R"({"status"} : "error")");
+  });
+
+
   server.on("/up", [](){
+    server.sendHeader("Access-Control-Allow-Origin", "*");
     moveUp();
     server.send(200, "text/raw", "up");
   });
   server.on("/down", [](){
+    server.sendHeader("Access-Control-Allow-Origin", "*");
     moveDown();
     server.send(200, "text/raw", "down");
   });
   server.on("/stop", [](){
+    server.sendHeader("Access-Control-Allow-Origin", "*");
     stopMoving();
     server.send(200, "text/raw", "stopped");
   });
 
-  server.on("/setDay", []() {
-    respondWebPage();
-    dayLight = currentLight;
-  });
-  
-  server.on("/setNight", []() {
-    respondWebPage();
-    nightLight = currentLight;
-  });
-
   server.on("/open", []() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
     openDoor();
     server.send(200, "text/raw", "open");
   });
   
   server.on("/close", []() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
     closeDoor();
     server.send(200, "text/raw", "closed");
   });
@@ -126,47 +205,54 @@ void setup(void){
 }
 
 void openDoor() {
+  Serial.println("opening");
   moveUp();
-  os_timer_arm(&stoppingTimer, OPENING_TIME*1000, 0);
+  os_timer_arm(&stoppingTimer, openingDuration*1000/256, 0);
   server.send(200, "text/raw", "open");
 }
 
 void closeDoor() {
+  Serial.println("closing");
   moveDown();
-  os_timer_arm(&stoppingTimer, CLOSING_TIME*1000, 0);
+  os_timer_arm(&stoppingTimer, closingDuration*1000/256, 0);
   server.send(200, "text/raw", "closed");
 }
-
-bool upWasPressed = false;
-bool downWasPressed = false;
 
 void loop(void){
   delay(500);
   
   server.handleClient();
 
-  if(upButton.isPressed() && !upWasPressed)
-    moveUp();
-  else if(downButton.isPressed() && !downWasPressed)
-    moveDown();
-  else if(downButton.isReleased() && upButton.isReleased() && (upWasPressed || downWasPressed))
-    stopMoving();
+  time_t now = time(nullptr);
+  struct tm *tm_struct = localtime(&now);
+  int hours = tm_struct->tm_hour;
+  int minutes = tm_struct->tm_min;
 
-  upWasPressed = upButton.isPressed();
-  downWasPressed = downButton.isPressed();
+  if(closingTime <= hours*60 + minutes) {
+    if(doorIsOpen) {
+      closeDoor();
+      doorIsOpen = false;
+    }
+  }
+  else if(openingTime <= hours*60 + minutes) {
+    if(!doorIsOpen) {
+      openDoor();
+      doorIsOpen = true;
+    }
+  }
 }
 
 void moveUp() {
-  digitalWrite(D5, HIGH);
-  digitalWrite(D6, LOW);  
+  digitalWrite(D2, HIGH);
+  digitalWrite(D4, LOW);  
 }
 
 void moveDown() {
-  digitalWrite(D5, LOW);
-  digitalWrite(D6, HIGH);  
+  digitalWrite(D2, LOW);
+  digitalWrite(D4, HIGH);  
 }
 
 void stopMoving() {
-  digitalWrite(D5, LOW);
-  digitalWrite(D6, LOW);  
+  digitalWrite(D2, LOW);
+  digitalWrite(D4, LOW);  
 }
