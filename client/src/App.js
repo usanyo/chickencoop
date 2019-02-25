@@ -19,6 +19,7 @@ class App extends Component {
       openingDuration : data.openingDuration,
       closingDuration : data.closingDuration
     })
+		this.temporarySettings = {}
     this.temporarySettings.openingTime = data.openingTime
     this.temporarySettings.closingTime = data.closingTime
     this.temporarySettings.openingDuration = data.openingDuration
